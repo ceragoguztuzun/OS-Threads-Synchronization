@@ -11,8 +11,6 @@
 #define MAX_K 10
 #define MIN_B 100
 #define MAX_B 10000
-#define SEMNAME_MUTEX_R
-#define SEMNAME_MUTEX_M
 
 int *midresult_arr;
 int file_no;
@@ -282,8 +280,7 @@ int main(int argc, char *argv[])
 
 /*	stuff 2 do
 /	-----------
-/	BUG: not all reads are visible
 /	reducer should wait for all mappers to finish
-/	buffer logic?
+/	buffer logic 
 /	TEST
 */
