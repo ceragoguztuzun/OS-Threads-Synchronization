@@ -21,6 +21,7 @@ int *vector_arr;
 char file_name[MAX_FILE_NAME_LEN];
 FILE *fp_mapperfile;
 int **buf;
+int *flags;
 int buf_size;
 int buf_read;
 int cond = 0;
@@ -45,14 +46,14 @@ void * reducer_fn (void *resultfile)
 	for(i = 0; i < file_no; ++i)
 	{
 		buf_read = 0;
-		while ( buf_read +1 < buf_size)
+		while ( buf_read +1 < buf_size && flags[i][buf_read] != 1)
 		{
 			midresult_arr_index = buf[i][buf_read];
 			read_val = buf[i][buf_read+1];
 
-		  	printf("%d ... %d ... %d \n", i, midresult_arr_index, read_val );
+		  printf("%d ... %d ... %d \n", i, midresult_arr_index, read_val );
 		 	midresult_arr[midresult_arr_index] += read_val;
-		  	buf_read += 2;
+		  buf_read += 2;
 		}
 	}
 
@@ -107,6 +108,11 @@ void * mapper_fn (int no_of_file)
   			 buf[no_of_file-1][buf_read++] = midresult_value;
   			 printf("%d --> %d -> %d \n", no_of_file-1,row_no-1,midresult_value);
   			}
+        if (buf_read + 1== buf_size)
+        {
+          //meaning buffer for mapper is full.
+          flags[no_of_file-1][buf_read] = 1;
+        }
   		}
   	}
   	cond++; 
@@ -239,6 +245,7 @@ int main(int argc, char *argv[])
   	sem_init(&sem_mutex_r, 0, 1); 
 
   	//buf[file_no][buf_size];
+    flags =(int*)calloc(file_no,sizeof(int));
   	buf = malloc(sizeof (int *) * buf_size);
   	for (int i = 0; i < buf_size; i++)
   	{
@@ -262,7 +269,8 @@ int main(int argc, char *argv[])
   	
   	sem_destroy(&sem_mutex_m);
   	sem_destroy(&sem_mutex_r);
-  	//free buf
+  	
+    //free buf
   	for (i = 0; i < buf_size; ++i)
   	{
   		free(buf[i]);
@@ -281,6 +289,7 @@ int main(int argc, char *argv[])
 /*	stuff 2 do
 /	-----------
 /	reducer should wait for all mappers to finish
-/	buffer logic 
+/  concurracy
+/	buffer logic -> linked list 
 /	TEST
 */
