@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <math.h>
 #include <semaphore.h>
+#include <stdbool.h>
 
 #define MAX_FILE_NAME_LEN 10
 #define MAX_N 10000 
@@ -20,7 +21,7 @@ void *mapper_fn(int param);
 int *vector_arr;
 char file_name[MAX_FILE_NAME_LEN];
 FILE *fp_mapperfile;
-int **buf;
+struct node **buf;
 int *flags;
 int buf_size;
 int buf_read;
@@ -28,6 +29,72 @@ int cond = 0;
 sem_t sem_mutex_r;
 sem_t sem_mutex_m;
 
+struct node {
+  int row_number;
+  int data;
+  struct node *next;
+};
+
+// linked list functions
+void *insertNode(int no_of_file, int row_numb, int newdata)
+{
+  if ( getLength(no_of_file) < buf_size)
+  {
+    struct node *newNode = (struct node*) malloc(sizeof(struct node));
+    newNode->row_number = row_numb;
+    newNode->data = newdata;
+    newNode->next = &buf[no_of_file];
+    buf[no_of_file] = newNode;
+  }
+}
+
+struct node* deleteAndGetNode(int no_of_file)
+{
+  struct node *curr = &buf[no_of_file];
+  buf[no_of_file] = buf[no_of_file]->next;
+  return curr;
+}
+
+void *printBuf(int no_of_file)
+{
+  struct node *curr = &buf[no_of_file];
+  printf("[ %d ][ ", no_of_file);
+  while(curr != NULL)
+  {
+    printf(" ( %d , %d ) ", curr->row_number, curr->data);
+    curr = curr->next;
+  }
+  printf(" ]");
+}
+
+int getLength(int no_of_file)
+{
+  printf("in l");
+  int l = 0;
+  struct node *curr;
+  printf("in l");
+
+  curr = buf[no_of_file];
+  while(curr)
+  {
+    printf("l: %d\n",l);
+    l++;
+    printf("%d -> %d \n",curr->row_number, curr->data);
+    if(curr->next)
+    {
+      curr = curr->next;
+    }
+  }
+  printf("l returned: %d\n",l);
+  return l;
+}
+
+bool isEmpty(int no_of_file)
+{
+  return buf[no_of_file] == NULL;
+}
+
+// REDUCER FUNCTION
 void * reducer_fn (void *resultfile)
 {
 	int i;
@@ -39,22 +106,21 @@ void * reducer_fn (void *resultfile)
 	printf("in red %d %d\n",cond,file_no);
 	//pthread_mutex_lock( &mutex2);  
 	sem_wait(&sem_mutex_r);
-	
+	struct node* thisnode;
 
 	printf("cond: %d\n",cond);
 
+  // READ BUFFER
 	for(i = 0; i < file_no; ++i)
 	{
-		buf_read = 0;
-		while ( buf_read +1 < buf_size && flags[i][buf_read] != 1)
-		{
-			midresult_arr_index = buf[i][buf_read];
-			read_val = buf[i][buf_read+1];
-
-		  printf("%d ... %d ... %d \n", i, midresult_arr_index, read_val );
-		 	midresult_arr[midresult_arr_index] += read_val;
-		  buf_read += 2;
-		}
+    while (getLength(i+1) != 0 && !isEmpty(i+1))
+    {
+      thisnode = deleteAndGetNode(i+1);
+      midresult_arr_index = thisnode->row_number;
+      read_val = thisnode->data;
+      printf("%d ... %d ... %d \n", i, midresult_arr_index, read_val );
+      midresult_arr[midresult_arr_index] += read_val;
+    }
 	}
 
 	//pthread_mutex_unlock( &mutex2);
@@ -75,6 +141,7 @@ void * reducer_fn (void *resultfile)
   	pthread_exit(0);
 }
 
+// MAPPER FUNCTION
 void * mapper_fn (int no_of_file)
 {
   	printf("in mp %d\n",no_of_file);
@@ -102,27 +169,21 @@ void * mapper_fn (int no_of_file)
   		if (fscanf (fp_mapperfile, "%d", &no) != EOF)
   		{	
   			midresult_value = no * vector_arr[col_no-1];
-  			if (buf_read +2 < buf_size)
-  			{
-  			 buf[no_of_file-1][buf_read++] = row_no-1;
-  			 buf[no_of_file-1][buf_read++] = midresult_value;
-  			 printf("%d --> %d -> %d \n", no_of_file-1,row_no-1,midresult_value);
-  			}
-        if (buf_read + 1== buf_size)
+        //printf("yoho %d\n",midresult_value);
+        printf("yoho %d <<<< %d\n",getLength(buf_read));
+  			// WRITE TO BUFFER
+        if (getLength(buf_read) < buf_size) //buffer is not full
         {
-          //meaning buffer for mapper is full.
-          flags[no_of_file-1][buf_read] = 1;
+          printf("yoho %d < %d\n",buf_read, buf_size);
+          insertNode(no_of_file-1, row_no-1, midresult_value);
+          printf("%d --> %d -> %d \n", no_of_file-1,row_no-1,midresult_value);
         }
+        printf("wtf");
+        buf_read++;
   		}
   	}
   	cond++; 
-  	//------------
-  	printf("printing BUFF for %d\n",no_of_file);
-  	for(no = 0; no < buf_size;++no)
-  	{
-  		printf("buf [ %d ] [ %d ] = %d \n",no_of_file-1,no,buf[no_of_file-1][no]);
-  	}
-  	
+
   	//pthread_mutex_unlock( &mutex1 );
   	sem_post(&sem_mutex_m);
   	fflush (stdout); 
@@ -193,10 +254,7 @@ int main(int argc, char *argv[])
   		vector_arr[i] = no;
   		i++;
   	}
-    for (i = 0; i < matrix_dimension; ++i)
-    {
-      printf("v: %d\n",vector_arr[i]);
-    }
+
   	//create K files
   	file_no = 1;
   	i = 0;
@@ -246,11 +304,21 @@ int main(int argc, char *argv[])
 
   	//buf[file_no][buf_size];
     flags =(int*)calloc(file_no,sizeof(int));
-  	buf = malloc(sizeof (int *) * buf_size);
-  	for (int i = 0; i < buf_size; i++)
-  	{
-    	buf[i] = malloc((sizeof(int)) * buf_size);
-  	}
+  	buf = malloc(sizeof (int *) * file_no);
+
+    char *node_name;
+    struct node *current = NULL;
+    for (i = 0; i < file_no; ++i)
+    {
+      sprintf(&node_name, "head_%d", i+1);
+      struct node *node_name = NULL;
+      buf[i] = &node_name;
+    }
+
+    for (i = 0; i < file_no; ++i)
+    {
+      printf(" buf[ %d ] -> (%d, %d)\n",i,buf[i]->row_number, buf[i]->data);
+    }
 
   	//pthread_mutex_lock( &mutex2);
   	for (c2 = 0; c2 < file_no; ++c2)
@@ -271,10 +339,6 @@ int main(int argc, char *argv[])
   	sem_destroy(&sem_mutex_r);
   	
     //free buf
-  	for (i = 0; i < buf_size; ++i)
-  	{
-  		free(buf[i]);
-  	}
   	free(buf);
   	printf("program done\n");
 
